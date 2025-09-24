@@ -1,0 +1,370 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+<title>Meal Photo + Notes Planner (PWA)</title>
+<link rel="manifest" href="/manifest.json">
+<meta name="theme-color" content="#0ea5a2">
+<!-- iOS meta -->
+<link rel="apple-touch-icon" href="/icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<style>
+  /* compact styles - same look as original app but slightly adapted for PWA */
+  :root{ --bg:#f7f8fb; --card:#ffffff; --muted:#6b7280; --accent:#0ea5a2; --shadow: 0 6px 18px rgba(15,23,42,0.08); }
+  html,body{height:100%;margin:0;font-family:Inter, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial; -webkit-font-smoothing:antialiased;}
+  body{background:linear-gradient(180deg,#f2f5f7 0%, #fbfdff 100%);padding:12px;color:#0f172a;}
+  .container{max-width:1100px;margin:0 auto;}
+  header{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;gap:12px;}
+  h1{font-size:16px;margin:0;}
+  .controls{display:flex;gap:8px;align-items:center;}
+  button{background:var(--card);border:1px solid #e6eef1;padding:8px 10px;border-radius:8px;cursor:pointer;box-shadow:var(--shadow);}
+  .nav-week{display:flex;gap:8px;align-items:center;}
+  .week-label{font-weight:600;padding:6px 10px;border-radius:8px;background:linear-gradient(90deg,#ffffff,#fbfdff);border:1px solid #eaf2f4;}
+  .grid{display:grid;grid-template-columns:repeat(7,1fr);gap:12px;}
+  .day{background:var(--card);padding:12px;border-radius:12px;box-shadow:var(--shadow);min-height:320px;display:flex;flex-direction:column;}
+  .date{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;}
+  .meals{display:flex;flex-direction:column;gap:8px;overflow:auto;padding-right:6px;}
+  .meal{border-radius:10px;padding:8px;background:#fbfeff;border:1px solid #eef6f7;display:flex;flex-direction:column;gap:8px;}
+  .thumbs{display:flex;gap:6px;flex-wrap:wrap;}
+  .thumb{width:68px;height:68px;border-radius:8px;object-fit:cover;border:1px solid #e6eef1;}
+  .muted{color:var(--muted);font-size:13px;}
+  .bottom-bar{margin-top:10px;display:flex;gap:8px;align-items:center;justify-content:space-between;}
+  .modal-back{position:fixed;inset:0;background:rgba(5,8,16,0.45);display:none;align-items:center;justify-content:center;z-index:40;}
+  .modal{background:var(--card);padding:14px;border-radius:12px;max-width:760px;width:100%;box-shadow:0 18px 40px rgba(2,6,23,0.4);}
+  .install-hint{background:#fff8; padding:8px;border-radius:8px;border:1px solid #e6eef1;}
+  @media (max-width:980px){ .grid{grid-template-columns:repeat(2,1fr);} }
+  @media (max-width:520px){ .grid{grid-template-columns:1fr;} header{flex-direction:column;align-items:flex-start;} }
+  .summary-view{background:var(--card);padding:12px;border-radius:12px;box-shadow:var(--shadow);margin-top:12px;}
+  .summary-day{display:flex;gap:12px;align-items:center;}
+  .summary-thumb{width:64px;height:64px;border-radius:8px;object-fit:cover;border:1px solid #e6eef1;}
+  .sr-only{position:absolute;left:-9999px;top:auto;width:1px;height:1px;overflow:hidden;}
+</style>
+</head>
+<body>
+<div class="container" id="app">
+  <header>
+    <div>
+      <h1>Meal Planner (PWA) — Week view (start 9/23/2025)</h1>
+      <div class="muted">Offline-capable. Installable on supported devices.</div>
+    </div>
+    <div class="controls">
+      <div class="nav-week">
+        <button id="prevWeekBtn" title="Previous week">&larr;</button>
+        <div class="week-label" id="weekLabel">Week</div>
+        <button id="nextWeekBtn" title="Next week">&rarr;</button>
+      </div>
+      <button id="toggleSummary">Daily Summary</button>
+      <button id="exportBtn">Export</button>
+      <button id="clearBtn">Clear</button>
+    </div>
+  </header>
+
+  <main>
+    <div id="grid" class="grid" aria-live="polite"></div>
+
+    <div id="summaryPanel" class="summary-view" style="display:none">
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <div style="font-weight:700" id="summaryTitle">Daily Summary</div>
+        <div>
+          <button id="summaryPrev" class="smallbtn">&larr;</button>
+          <button id="summaryNext" class="smallbtn">&rarr;</button>
+          <button id="closeSummary" class="smallbtn">Close</button>
+        </div>
+      </div>
+      <div id="summaryContent" style="margin-top:12px"></div>
+    </div>
+
+    <div style="height:8px"></div>
+    <div class="muted small">Notes: Photos stored locally. Export for backup.</div>
+  </main>
+</div>
+
+<!-- Modal for add/edit (kept compact) -->
+<div id="modalBack" class="modal-back" role="dialog" aria-modal="true" aria-hidden="true">
+  <div class="modal" id="modal">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+      <div>
+        <div id="modalTitle" style="font-weight:700">Add photos & note</div>
+        <div class="muted" id="modalSub">For:</div>
+      </div>
+      <div><button id="closeModal" class="smallbtn">Close</button></div>
+    </div>
+    <div style="display:flex;gap:12px;flex-direction:column">
+      <div>
+        <label class="muted">Photos (multiple allowed)</label>
+        <div style="border:2px dashed #e6eef1;border-radius:10px;padding:10px;text-align:center;margin-top:8px;">
+          <div class="muted">Drag images here or</div>
+          <div style="height:8px"></div>
+          <label for="fileInput" class="smallbtn" style="cursor:pointer">Choose photos</label>
+          <input id="fileInput" type="file" accept="image/*" multiple style="display:none">
+          <div id="previews" style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap"></div>
+        </div>
+      </div>
+      <div>
+        <label class="muted">Note (optional)</label>
+        <textarea id="noteInput" style="width:100%;min-height:88px;padding:8px;border-radius:8px;border:1px solid #e6eef1;"></textarea>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center;">
+        <button id="saveEntry" class="smallbtn">Save</button>
+        <button id="discardEntry" class="smallbtn">Discard</button>
+        <div class="muted" id="imgCount">0 images selected</div>
+      </div>
+      <div>
+        <div style="font-weight:700">Existing entries</div>
+        <div id="existingEntries" style="max-height:240px;overflow:auto;margin-top:8px"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+/* PWA-enabled Meal Planner
+   - Week view (starts with week containing 2025-09-23)
+   - Daily summary panel shows all meals for a selected date with thumbnails and notes
+   - Uses localStorage for persistence, manifest + service worker for offline/install
+*/
+const START_DATE = new Date(2025,8,23);
+const STORAGE_KEY = 'mealPlanner_v1';
+const MEALS = ['Breakfast','Lunch','Dinner','Snacks'];
+
+let state = { weekStart: startOfWeekContaining(START_DATE), db:{} , summaryDate: null };
+function dateKey(d){ const y=d.getFullYear(); const m=String(d.getMonth()+1).padStart(2,'0'); const day=String(d.getDate()).padStart(2,'0'); return `${y}-${m}-${day}`; }
+function startOfWeekContaining(date){ const d=new Date(date); const day=(d.getDay()+6)%7; d.setDate(d.getDate()-day); d.setHours(0,0,0,0); return d; }
+function formatShort(d){ return new Intl.DateTimeFormat(undefined,{weekday:'short', month:'short', day:'numeric'}).format(d); }
+function formatLongRange(s){ const e=new Date(s); e.setDate(e.getDate()+6); return `${new Intl.DateTimeFormat(undefined,{month:'short',day:'numeric'}).format(s)} — ${new Intl.DateTimeFormat(undefined,{month:'short',day:'numeric'}).format(e)}`; }
+
+function loadDB(){ try{ const raw=localStorage.getItem(STORAGE_KEY); state.db = raw?JSON.parse(raw):{};}catch(e){state.db={};} }
+function saveDB(){ try{ localStorage.setItem(STORAGE_KEY, JSON.stringify(state.db)); }catch(e){ alert('Save failed — storage may be full. Export before adding more.'); } }
+
+function renderGrid(){
+  const grid=document.getElementById('grid'); grid.innerHTML='';
+  document.getElementById('weekLabel').textContent = formatLongRange(state.weekStart);
+  for(let i=0;i<7;i++){
+    const d=new Date(state.weekStart); d.setDate(state.weekStart.getDate()+i);
+    const key = dateKey(d);
+    const dayCard = document.createElement('div'); dayCard.className='day';
+    dayCard.innerHTML = `
+      <div class="date">
+        <div>
+          <div class="dow">${new Intl.DateTimeFormat(undefined,{weekday:'short'}).format(d)}</div>
+          <div class="muted small">${new Intl.DateTimeFormat(undefined,{month:'short',day:'numeric',year:'numeric'}).format(d)}</div>
+        </div>
+        <div class="muted">${countEntriesForDate(key)} entries</div>
+      </div>
+      <div class="meals" id="meals-${key}"></div>
+    `;
+    grid.appendChild(dayCard);
+    const mealsWrap = dayCard.querySelector(`#meals-${key}`);
+    MEALS.forEach(meal=>{
+      const entries = (state.db[key] && state.db[key][meal.toLowerCase()]) || [];
+      const thumbs = entries.map(e => `<img class="thumb" src="${e.imageData}" alt="">`).join('');
+      const noteSnippet = entries.length ? `<div class="muted">${entries[entries.length-1].note ? entries[entries.length-1].note.slice(0,80) : 'No note'}</div>` : `<div class="muted small">No entries yet</div>`;
+      const mealDiv = document.createElement('div');
+      mealDiv.className='meal';
+      mealDiv.innerHTML = `
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <div style="font-weight:600">${meal}</div>
+          <div><button class="add-btn" data-date="${key}" data-meal="${meal.toLowerCase()}">Add</button></div>
+        </div>
+        <div class="thumbs">${thumbs}</div>
+        ${noteSnippet}
+      `;
+      mealsWrap.appendChild(mealDiv);
+    });
+    // clicking day opens summary for that date
+    dayCard.addEventListener('click', (ev)=>{ if(ev.target.tagName.toLowerCase() !== 'button' && !ev.target.classList.contains('thumb')) openSummaryFor(key); });
+  }
+  document.querySelectorAll('.add-btn').forEach(b=>b.addEventListener('click', openModalFor));
+}
+
+function countEntriesForDate(key){ const d=state.db[key]; if(!d) return 0; return Object.values(d).reduce((s,a)=>s+(a?a.length:0),0); }
+
+let modalContext = {date:null, meal:null};
+function openModalFor(e){
+  e.stopPropagation();
+  const date = e.currentTarget.dataset.date;
+  const meal = e.currentTarget.dataset.meal;
+  modalContext.date = date; modalContext.meal = meal;
+  document.getElementById('modalSub').textContent = `For: ${date} — ${meal}`;
+  refreshExistingEntries();
+  stagedFiles = [];
+  renderStaged();
+  document.getElementById('modalBack').style.display='flex';
+}
+function closeModal(){ document.getElementById('modalBack').style.display='none'; }
+
+document.getElementById('closeModal').addEventListener('click', closeModal);
+document.getElementById('modalBack').addEventListener('click', (e)=>{ if(e.target===document.getElementById('modalBack')) closeModal(); });
+
+const fileInput = document.getElementById('fileInput');
+const previews = document.getElementById('previews');
+const imgCount = document.getElementById('imgCount');
+let stagedFiles = [];
+
+fileInput.addEventListener('change', async (ev)=>{ const files = Array.from(ev.target.files||[]); await addFiles(files); ev.target.value=''; });
+async function addFiles(files){
+  for(const f of files){
+    if(!f.type.startsWith('image/')) continue;
+    const data = await readAsDataURL(f);
+    stagedFiles.push({name:f.name, dataUrl:data});
+  }
+  renderStaged();
+}
+function readAsDataURL(file){ return new Promise((res,rej)=>{ const r=new FileReader(); r.onload=()=>res(r.result); r.onerror=()=>rej(); r.readAsDataURL(file); }); }
+function renderStaged(){
+  previews.innerHTML=''; stagedFiles.forEach(s=>{ const img=document.createElement('img'); img.src=s.dataUrl; img.className='thumb'; previews.appendChild(img); });
+  imgCount.textContent = `${stagedFiles.length} image(s) selected`;
+}
+
+document.getElementById('saveEntry').addEventListener('click', ()=>{
+  const note = document.getElementById('noteInput').value.trim();
+  if(stagedFiles.length===0 && note===''){ if(!confirm('No photos and no note — nothing to save. Cancel?')) return; }
+  const date = modalContext.date; const meal = modalContext.meal;
+  if(!state.db[date]) state.db[date] = {};
+  if(!state.db[date][meal]) state.db[date][meal] = [];
+  if(stagedFiles.length>0){
+    stagedFiles.forEach(s=> state.db[date][meal].push({ id: uid(), imageData: s.dataUrl, note, createdAt: new Date().toISOString() }));
+  } else {
+    state.db[date][meal].push({ id: uid(), imageData: placeholderDataUrl(), note, createdAt: new Date().toISOString() });
+  }
+  saveDB(); stagedFiles = []; document.getElementById('noteInput').value=''; renderStaged(); refreshExistingEntries(); renderGrid(); closeModal();
+});
+
+document.getElementById('discardEntry').addEventListener('click', ()=>{ if(confirm('Discard?')){ stagedFiles=[]; renderStaged(); document.getElementById('noteInput').value=''; } });
+
+function refreshExistingEntries(){
+  const wrap = document.getElementById('existingEntries'); wrap.innerHTML='';
+  const date = modalContext.date; const meal = modalContext.meal;
+  const arr = (state.db[date] && state.db[date][meal]) || [];
+  if(arr.length===0){ wrap.innerHTML = '<div class="muted small">No saved entries yet.</div>'; return; }
+  arr.slice().reverse().forEach((entry, idx)=>{
+    const el = document.createElement('div'); el.style.display='flex'; el.style.gap='8px'; el.style.alignItems='center';
+    el.innerHTML = `<img src="${entry.imageData}" class="thumb" alt=""><div style="flex:1"><div style="font-weight:600">${new Date(entry.createdAt).toLocaleString()}</div><div class="muted">${entry.note?escapeHtml(entry.note):'<i>No note</i>'}</div></div><div><button class="smallbtn btn-delete" data-idx="${arr.length-1-idx}">Delete</button></div>`;
+    wrap.appendChild(el);
+  });
+  wrap.querySelectorAll('.btn-delete').forEach(btn=> btn.addEventListener('click', ()=>{
+    const idx = Number(btn.dataset.idx);
+    if(confirm('Delete this saved entry?')) {
+      state.db[modalContext.date][modalContext.meal].splice(idx,1);
+      if(state.db[modalContext.date][modalContext.meal].length===0) delete state.db[modalContext.date][modalContext.meal];
+      if(Object.keys(state.db[modalContext.date]||{}).length===0) delete state.db[modalContext.date];
+      saveDB(); refreshExistingEntries(); renderGrid();
+    }
+  }));
+}
+
+function uid(){ return 'id-'+Math.random().toString(36).slice(2,9); }
+function placeholderDataUrl(){ return "data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs="; }
+function escapeHtml(s){ return String(s).replace(/[&<>'"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+// Summary panel
+function openSummaryFor(dateKey){
+  state.summaryDate = dateKey;
+  document.getElementById('summaryPanel').style.display='block';
+  renderSummary();
+}
+function closeSummary(){ document.getElementById('summaryPanel').style.display='none'; state.summaryDate = null; }
+document.getElementById('closeSummary').addEventListener('click', closeSummary);
+document.getElementById('toggleSummary').addEventListener('click', ()=> {
+  // open summary for first day of week by default
+  const d = new Date(state.weekStart); openSummaryFor(dateKey(d));
+});
+document.getElementById('summaryPrev').addEventListener('click', ()=>{ if(!state.summaryDate) return; const d = new Date(state.summaryDate); d.setDate(d.getDate()-1); openSummaryFor(dateKey(d)); });
+document.getElementById('summaryNext').addEventListener('click', ()=>{ if(!state.summaryDate) return; const d = new Date(state.summaryDate); d.setDate(d.getDate()+1); openSummaryFor(dateKey(d)); });
+
+function renderSummary(){
+  const content = document.getElementById('summaryContent'); content.innerHTML='';
+  const date = state.summaryDate;
+  document.getElementById('summaryTitle').textContent = `Summary — ${date}`;
+  const day = state.db[date] || {};
+  if(Object.keys(day).length===0){ content.innerHTML = '<div class="muted">No entries for this date.</div>'; return; }
+  MEALS.forEach(meal=>{
+    const arr = day[meal.toLowerCase()] || [];
+    const sec = document.createElement('div'); sec.style.marginTop='10px';
+    sec.innerHTML = `<div style="font-weight:700">${meal} — ${arr.length} item(s)</div>`;
+    if(arr.length>0){
+      const list = document.createElement('div'); list.style.display='flex'; list.style.gap='8px'; list.style.flexWrap='wrap'; list.style.marginTop='8px';
+      arr.forEach(e=>{
+        const card = document.createElement('div'); card.style.width='160px'; card.style.border='1px solid #eef6f7'; card.style.borderRadius='8px'; card.style.padding='8px';
+        card.innerHTML = `<img src="${e.imageData}" class="summary-thumb"><div class="muted" style="margin-top:6px">${e.note?escapeHtml(e.note):'<i>No note</i>'}</div><div style="font-size:12px;color:#888;margin-top:6px">${new Date(e.createdAt).toLocaleString()}</div>`;
+        list.appendChild(card);
+      });
+      sec.appendChild(list);
+    }
+    content.appendChild(sec);
+  });
+  // actions: export day
+  const actions = document.createElement('div'); actions.style.marginTop='12px';
+  actions.innerHTML = `<button id="exportDay" class="smallbtn">Export This Day (JSON)</button> <button id="shareDay" class="smallbtn">Share (iOS)</button>`;
+  content.appendChild(actions);
+  document.getElementById('exportDay').addEventListener('click', ()=> exportDay(date));
+  document.getElementById('shareDay').addEventListener('click', ()=> shareDay(date));
+}
+
+// export whole DB and day
+document.getElementById('exportBtn').addEventListener('click', ()=> {
+  const data = JSON.stringify({ exportedAt: new Date().toISOString(), db: state.db }, null, 2);
+  const blob = new Blob([data], {type:'application/json'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a'); a.href=url; a.download=`meal-planner-export-${(new Date()).toISOString().slice(0,10)}.json`; a.click(); URL.revokeObjectURL(url);
+});
+function exportDay(date){
+  const payload = { exportedAt: new Date().toISOString(), date, data: state.db[date] || {} };
+  const blob = new Blob([JSON.stringify(payload,null,2)], {type:'application/json'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a'); a.href=url; a.download=`meal-planner-${date}.json`; a.click(); URL.revokeObjectURL(url);
+}
+function shareDay(date){
+  const payload = { date, data: state.db[date] || {} };
+  if(navigator.share){
+    navigator.share({title:`Meal summary ${date}`, text: JSON.stringify(payload,null,2)}).catch(()=>{ alert('Share cancelled or unsupported.'); });
+  } else {
+    // fallback for iOS Safari: create blob and prompt user to save
+    exportDay(date);
+    alert('If on iOS you can use the Share sheet after exporting or use "Add to Home Screen" to install the app.');
+  }
+}
+
+// import / clear
+document.getElementById('clearBtn').addEventListener('click', ()=>{ if(confirm('Clear all saved data?')){ localStorage.removeItem(STORAGE_KEY); state.db={}; renderGrid(); alert('Cleared.'); } });
+
+// init handlers for week nav
+document.getElementById('prevWeekBtn').addEventListener('click', ()=>{ state.weekStart.setDate(state.weekStart.getDate()-7); renderGrid(); });
+document.getElementById('nextWeekBtn').addEventListener('click', ()=>{ state.weekStart.setDate(state.weekStart.getDate()+7); renderGrid(); });
+window.addEventListener('keydown', (e)=>{ if(e.key==='ArrowLeft'){ state.weekStart.setDate(state.weekStart.getDate()-7); renderGrid(); } if(e.key==='ArrowRight'){ state.weekStart.setDate(state.weekStart.getDate()+7); renderGrid(); } });
+
+// simple install prompt handling (for Android)
+let deferredPrompt = null;
+window.addEventListener('beforeinstallprompt', (e)=>{ e.preventDefault(); deferredPrompt = e; const btn = document.createElement('button'); btn.textContent = 'Install App'; btn.className='smallbtn'; btn.addEventListener('click', async ()=>{ deferredPrompt.prompt(); const choice = await deferredPrompt.userChoice; deferredPrompt = null; btn.remove(); }); document.querySelector('.controls').appendChild(btn); });
+
+// iOS hint: show instructions once if not installed
+function needsIosHint(){
+  const isIos = /iphone|ipad|ipod/i.test(navigator.userAgent);
+  const standalone = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
+  return isIos && !standalone;
+}
+function showIosInstallHint(){
+  if(!needsIosHint()) return;
+  if(localStorage.getItem('iosHintShown')) return;
+  const hint = document.createElement('div'); hint.className='install-hint'; hint.style.marginTop='8px';
+  hint.innerHTML = `<strong>Install on iPhone</strong> — open Safari menu (Share) → "Add to Home Screen" to install this app. <button id="dismissHint" class="smallbtn">Got it</button>`;
+  document.querySelector('header').appendChild(hint);
+  document.getElementById('dismissHint').addEventListener('click', ()=>{ hint.remove(); localStorage.setItem('iosHintShown','1'); });
+}
+
+// sharing / copy to clipboard helpers
+function copyToClipboard(text){ navigator.clipboard?.writeText(text).catch(()=>{}); }
+
+loadDB();
+renderGrid();
+showIosInstallHint();
+
+// register service worker
+if('serviceWorker' in navigator){
+  navigator.serviceWorker.register('/sw.js').then(()=> console.log('SW registered')).catch(()=>console.log('SW failed'));
+}
+</script>
+</body>
+</html>
