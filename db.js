@@ -1,2 +1,1 @@
-// db.js placeholder
-// Insert IndexedDB wrapper code from the answer here.
+/* db.js placeholder - insert full IndexedDB wrapper from previous answer */
