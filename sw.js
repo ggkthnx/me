@@ -1,1 +1,0 @@
-/* sw.js placeholder - insert full service worker offline caching code */
